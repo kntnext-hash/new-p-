@@ -31,3 +31,17 @@
 - ユニットテスト32件パス（ツリー構造検証＋遷移・再開・進捗・必須回答率）✅
 - `npm run build` 警告なし ✅
 - 飲食テンプレで最後まで回答→リロードで回答保持：コードパス実装済み（自動保存＋upsert＋再開位置計算）。ブラウザでの実地確認は Supabase 接続待ち ⏳
+
+## M2: 動的深掘り（2026-07-05）
+
+**実装内容**
+- LLMクライアント（`lib/llm/client.ts`）：リトライ1回＋タイムアウト30秒（作業ルール準拠）。モデルは `LLM_MODEL` 環境変数で差し替え可（既定 claude-sonnet-5）
+- プロンプト分離（`lib/interview/prompts/followups.ts`）：矛盾検出＋重要な空白の検出、最大3問、平易な日本語、JSON形式指定
+- パーサ（`lib/interview/followups.ts`）：コードフェンス混入・壊れたJSONでも例外を出さず空配列 → ユーザーを止めない。3問に切り詰め。深掘りキーの採番（`{section}.followup.N`）と再生成防止
+- APIルート（`/api/interview/followups`）：認証・所有権（RLS）確認 → 生成済みなら未回答分を返すだけ → LLM呼び出し → is_followup=true で answers に保存
+- インタビューUIは失敗時（非200・例外・空配列）に無言で次セクションへ進む
+
+**AC確認**
+- ユニットテスト41件パス（パース異常系・切り詰め・採番・トランスクリプト構築を含む）✅
+- API失敗時もフローが止まらない：クライアント側 try/catch＋API側は常に200+空配列 ✅（コード＋テストで担保）
+- 矛盾セットで追加質問が生成される：`scripts/verify-followups.ts` を用意。ANTHROPIC_API_KEY 設定後に `npx tsx --env-file=.env.local scripts/verify-followups.ts` で確認 ⏳
