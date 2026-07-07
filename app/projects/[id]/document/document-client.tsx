@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { DocumentContent } from "@/lib/types";
-import { regenerateDocument } from "./actions";
+import { PRICE_JPY, type DocumentContent } from "@/lib/types";
+import { ensurePdf, regenerateDocument } from "./actions";
 
 interface DocumentState {
   id: string;
@@ -31,11 +31,101 @@ const NONNAME_FIELDS: { key: keyof DocumentContent["nonname_sheet"]; label: stri
   { key: "handover_notes", label: "引継ぎに関する希望" },
 ];
 
+/** 未決済向け：概要1セクションのみの透かしプレビュー＋購入導線 */
+function PreviewPane({
+  projectId,
+  summary,
+}: {
+  projectId: string;
+  summary: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleCheckout() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      setError(
+        "お支払い画面を開けませんでした。少し時間をおいて、もう一度お試しください。"
+      );
+    } catch {
+      setError("通信に失敗しました。接続をご確認ください。");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="mt-8">
+      <div className="relative overflow-hidden rounded-xl border border-gray-200 p-6">
+        {/* 透かし */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-10 flex flex-wrap content-around justify-around opacity-[0.13]"
+        >
+          {Array.from({ length: 12 }).map((_, i) => (
+            <span
+              key={i}
+              className="-rotate-12 text-3xl font-bold text-gray-900"
+            >
+              サンプル
+            </span>
+          ))}
+        </div>
+        <h2 className="font-semibold">事業の概要（プレビュー）</h2>
+        <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
+          {summary}
+        </p>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-6">
+        <p className="text-sm text-gray-600">
+          🔒 以下はお支払い後にご覧いただけます
+        </p>
+        <ul className="mt-2 text-sm text-gray-500">
+          <li>・7セクションの本文（基本情報〜リスク・引継ぎ事項）</li>
+          <li>・匿名のノンネームシート（お相手に最初に見せる1枚）</li>
+          <li>・内容の修正と PDF のダウンロード</li>
+        </ul>
+      </div>
+
+      <div className="mt-8 rounded-xl border-2 border-blue-700 p-6 text-center">
+        <p className="text-lg font-bold">
+          事業概要書一式　{PRICE_JPY.toLocaleString()}円（税込・買い切り）
+        </p>
+        <p className="mt-1 text-sm text-gray-600">
+          お支払い後、全文の確認・修正・PDFダウンロードができます。
+        </p>
+        <button
+          onClick={() => void handleCheckout()}
+          disabled={busy}
+          className="mt-4 rounded-lg bg-blue-700 px-8 py-4 text-base font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+        >
+          {busy ? "お支払い画面を開いています…" : "購入して全文を見る"}
+        </button>
+        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function DocumentClient({
   projectId,
+  paid,
   initialDocument,
 }: {
   projectId: string;
+  paid: boolean;
   initialDocument: DocumentState;
 }) {
   const [doc, setDoc] = useState(initialDocument);
@@ -50,6 +140,13 @@ export default function DocumentClient({
 
   const dirty = JSON.stringify(content) !== JSON.stringify(doc.content);
 
+  // 未決済：透かしプレビューのみ
+  if (!paid) {
+    return (
+      <PreviewPane projectId={projectId} summary={initialDocument.content.summary} />
+    );
+  }
+
   function setMain(key: keyof Omit<DocumentContent, "nonname_sheet">, v: string) {
     setContent((prev) => ({ ...prev, [key]: v }));
   }
@@ -61,6 +158,22 @@ export default function DocumentClient({
       ...prev,
       nonname_sheet: { ...prev.nonname_sheet, [key]: v },
     }));
+  }
+
+  async function handleEnsurePdf() {
+    setBusy(true);
+    setMessage(null);
+    const res = await ensurePdf(projectId, doc.id);
+    if (res.ok) {
+      setDoc((prev) => ({ ...prev, hasPdf: true }));
+      setMessage({ kind: "ok", text: "PDFを作成しました。ダウンロードできます。" });
+    } else {
+      setMessage({
+        kind: "error",
+        text: "PDFの作成に失敗しました。もう一度お試しください。",
+      });
+    }
+    setBusy(false);
   }
 
   async function handleRegenerate() {
@@ -105,13 +218,21 @@ export default function DocumentClient({
           )}
         </p>
         <div className="flex items-center gap-3">
-          {doc.hasPdf && (
+          {doc.hasPdf ? (
             <a
               href={`/api/documents/${doc.id}/download`}
               className="rounded-lg border border-blue-700 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
             >
               PDFをダウンロード
             </a>
+          ) : (
+            <button
+              onClick={() => void handleEnsurePdf()}
+              disabled={busy}
+              className="rounded-lg border border-blue-700 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            >
+              {busy ? "PDFを作成中…" : "PDFを作成する"}
+            </button>
           )}
           <button
             onClick={() => void handleRegenerate()}

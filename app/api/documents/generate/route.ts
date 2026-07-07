@@ -6,6 +6,7 @@ import {
   generateDocumentContent,
   saveDocumentVersion,
 } from "@/lib/pdf/generate";
+import { isPaid } from "@/lib/payment";
 import type { AnswerRecord } from "@/lib/interview/types";
 import type { Project } from "@/lib/types";
 
@@ -76,15 +77,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "llm_failed" }, { status: 502 });
   }
 
-  const result = await saveDocumentVersion(project, content);
+  // 課金ゲート：PDF全文の生成は支払い後のみ。未決済は content のみ保存し
+  // 透かしプレビュー（1セクション）表示に使う
+  const paid = isPaid(project.status);
+  const result = await saveDocumentVersion(project, content, {
+    renderPdf: paid,
+  });
   if (!result) {
     return NextResponse.json({ error: "save_failed" }, { status: 500 });
   }
 
-  await supabase
-    .from("projects")
-    .update({ status: "generated" })
-    .eq("id", project.id);
+  if (paid && result.hasPdf) {
+    await supabase
+      .from("projects")
+      .update({ status: "generated" })
+      .eq("id", project.id);
+  }
 
   return NextResponse.json(result);
 }

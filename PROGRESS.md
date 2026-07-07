@@ -63,3 +63,17 @@
 - フル回答セット（未回答2問含む）→ A4縦PDF生成をローカルChromeで実地確認（`scripts/verify-document.ts --fixture`、2ページ・406KB）。未回答項目は「情報なし」表記、ノンネームシートに固有名詞なしを目視確認 ✅
 - LLM生成込みのE2E確認は ANTHROPIC_API_KEY 設定後に `npx tsx --env-file=.env.local scripts/verify-document.ts` ⏳
 - `npm run build` 警告なし ✅
+
+## M4: Stripe課金（2026-07-07）
+
+**実装内容**
+- `/api/stripe/checkout`：Checkout Session（STRIPE_PRICE_ID・一回払い・metadata に project_id）を作成し、purchases に pending 行を挿入（service role。ユーザーには書き込み権限なし）
+- `/api/stripe/webhook`：署名検証（生ボディ＋STRIPE_WEBHOOK_SECRET）→ `handleStripeEvent`。冪等性は stripe_session_id 一意＋「既に paid ならスキップ」で担保。処理失敗は500でStripeの再送に任せる
+- Webhookロジックは `lib/stripe/webhook.ts` に分離し、ストアを注入可能に（ユニットテスト対象）
+- 生成ゲート：未決済は content_json のみ生成・保存（PDFは作らない）→ 文書ページは概要1セクションの透かしプレビュー＋購入導線のみ。決済後は全文編集・PDF作成・DL解禁
+- ダウンロードAPIにも 402 ガード（多層防御）。決済遷移バナー（success/cancel）表示
+
+**AC確認**
+- ユニットテスト53件パス（Webhook: completed処理・対象外イベント無視・再送冪等・未知セッション・遅延決済未入金の5ケース）✅
+- 未決済では透かしプレビューのみ／決済→paid遷移→PDF解禁：コードパス実装済み。テストモード実地確認は Stripe キー設定＋`stripe listen` で実施 ⏳
+  - 確認手順：`.env.local` に STRIPE_* を設定 → `stripe listen --forward-to localhost:3000/api/stripe/webhook` → テストカード 4242… で決済 → projects.status が paid になり全文＋PDFが解禁されること
