@@ -42,3 +42,7 @@ next-env.d.ts
 
 # 検証スクリプトの出力
 /tmp/
+
+# Playwright
+/test-results/
+/playwright-report/
