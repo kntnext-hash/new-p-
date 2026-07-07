@@ -34,7 +34,8 @@ describe("parseDocumentResponse", () => {
   });
 
   it("フィールド欠落は null（呼び出し側で再試行に誘導）", () => {
-    const { nonname_sheet: _omit, ...missing } = validContent;
+    const missing: Partial<DocumentContent> = { ...validContent };
+    delete missing.nonname_sheet;
     expect(parseDocumentResponse(JSON.stringify(missing))).toBeNull();
   });
 

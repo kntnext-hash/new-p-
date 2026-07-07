@@ -77,3 +77,31 @@
 - ユニットテスト53件パス（Webhook: completed処理・対象外イベント無視・再送冪等・未知セッション・遅延決済未入金の5ケース）✅
 - 未決済では透かしプレビューのみ／決済→paid遷移→PDF解禁：コードパス実装済み。テストモード実地確認は Stripe キー設定＋`stripe listen` で実施 ⏳
   - 確認手順：`.env.local` に STRIPE_* を設定 → `stripe listen --forward-to localhost:3000/api/stripe/webhook` → テストカード 4242… で決済 → projects.status が paid になり全文＋PDFが解禁されること
+
+## M5: 仕上げ（2026-07-07）
+
+**実装内容**
+- LP（`app/page.tsx`）：課題→使い方3ステップ＋画面イメージ→価格（30,000円買い切り）→FAQ→CTA。デモGIFは実環境接続後に差し替え（SCOPE_QUESTIONS #3）
+- エラーハンドリング：`app/error.tsx`（グローバル）、`app/not-found.tsx`、`/projects` 系の `loading.tsx`（スケルトン）。各フォーム・API呼び出しは実装時からエラー文言・リトライ誘導済み
+- Playwright E2E：
+  - `e2e/smoke.spec.ts`：LP表示・未ログインリダイレクト
+  - `e2e/full-flow.spec.ts`：登録（Admin APIでマジックリンク発行）→ プロジェクト作成 → 全問回答（深掘り込み）→ 生成 → 未決済は透かしプレビュー＋DL 402 → paid遷移 → 全文解禁 → PDF作成 → DL 200/PDF
+  - Supabase / ANTHROPIC_API_KEY 未設定時は全テストを明示スキップ（webServerも起動しない）
+- ESLint 0 warnings / README整備
+
+**AC確認**
+- `npm run build` 警告なしで通過 ✅
+- ユニットテスト53件パス・ESLintクリーン ✅
+- 主要フローE2E：テストコード完備。実行は Supabase＋ANTHROPIC_API_KEY 設定後に `npm run test:e2e` ⏳
+
+---
+
+## 残作業（キー設定後の確認チェックリスト）
+
+1. `.env.example` を `.env.local` にコピーして各キーを設定
+2. Supabase SQL Editor で `supabase/migrations/0001_init.sql` を実行、Email認証とRedirect URLを設定（README参照）
+3. `npx tsx --env-file=.env.local scripts/verify-followups.ts` — M2 AC
+4. `npx tsx --env-file=.env.local scripts/verify-document.ts` — M3 AC（LLM込み）
+5. `npm run test:e2e` — M1/M3/M4/M5 AC（登録→回答→決済→PDF）
+6. Stripeテストモードの実決済確認（M4手順）
+7. Vercelデプロイ（環境変数を設定、`STRIPE_WEBHOOK_SECRET` は本番Webhookエンドポイントのものに差し替え）
