@@ -8,7 +8,8 @@ import {
   totalVisitedCount,
 } from "@/lib/interview/engine";
 import type { AnswerRecord } from "@/lib/interview/types";
-import { INDUSTRY_LABELS, type Project } from "@/lib/types";
+import { INDUSTRY_LABELS, type DocumentRow, type Project } from "@/lib/types";
+import GenerateButton from "./generate-button";
 
 export const metadata = {
   title: "事業の詳細 | ツグモノ",
@@ -44,6 +45,14 @@ export default async function ProjectPage({
   const visited = totalVisitedCount(tree, answers);
   const interviewDone = visited >= total;
   const percent = Math.round((visited / total) * 100);
+
+  const { data: latestDoc } = await supabase
+    .from("documents")
+    .select("id, version, pdf_path")
+    .eq("project_id", id)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle<Pick<DocumentRow, "id" | "version" | "pdf_path">>();
 
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-10">
@@ -98,18 +107,37 @@ export default async function ProjectPage({
         )}
       </section>
 
-      {/* ステップ2：概要書を作る（M3で実装） */}
+      {/* ステップ2：概要書を作る */}
       <section
         className={`mt-4 rounded-xl border border-gray-200 p-6 ${
           interviewDone ? "" : "opacity-50"
         }`}
       >
-        <h2 className="font-semibold">ステップ2：事業概要書を作る</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          {interviewDone
-            ? "回答をもとに、事業概要書（PDF）を作成します。"
-            : "質問への回答が終わると、ここから概要書を作成できます。"}
+        <h2 className="font-semibold">
+          ステップ2：事業概要書を作る
+          {latestDoc && (
+            <span className="ml-2 text-sm font-normal text-green-700">
+              ✓ 第{latestDoc.version}版まで作成済み
+            </span>
+          )}
+        </h2>
+        <p className="mt-1 mb-4 text-sm text-gray-500">
+          {latestDoc
+            ? "できあがった概要書の確認・修正・PDFダウンロードができます。"
+            : interviewDone
+              ? "回答をもとに、事業概要書（PDF）を作成します。"
+              : "質問への回答が終わると、ここから概要書を作成できます。"}
         </p>
+        {latestDoc ? (
+          <Link
+            href={`/projects/${project.id}/document`}
+            className="inline-block rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800"
+          >
+            概要書を見る・直す
+          </Link>
+        ) : (
+          interviewDone && <GenerateButton projectId={project.id} />
+        )}
       </section>
     </main>
   );

@@ -45,3 +45,21 @@
 - ユニットテスト41件パス（パース異常系・切り詰め・採番・トランスクリプト構築を含む）✅
 - API失敗時もフローが止まらない：クライアント側 try/catch＋API側は常に200+空配列 ✅（コード＋テストで担保）
 - 矛盾セットで追加質問が生成される：`scripts/verify-followups.ts` を用意。ANTHROPIC_API_KEY 設定後に `npx tsx --env-file=.env.local scripts/verify-followups.ts` で確認 ⏳
+
+## M3: 文書生成＋PDF（2026-07-07）
+
+**実装内容**
+- 生成プロンプト（`lib/interview/prompts/document.ts`）：事実ベース・誇張なし・未回答は「情報なし」明記・ノンネームの特定情報マスク規則を明文化
+- content_json スキーマ検証（`lib/pdf/content.ts`、zod）。パース失敗は null → UIで再試行誘導
+- HTMLテンプレート（`lib/pdf/templates/overview.tsx` → renderToString）：本編（概要＋7セクション）＋別ページのノンネームシート。Noto Sans JP Webフォント
+- Puppeteer レンダラ（`lib/pdf/render.ts`）：Vercel(Linux)は @sparticuz/chromium、ローカルはインストール済みChrome/Edgeを自動探索。`document.fonts.ready` 待ちでフォント崩れ防止
+- `/api/documents/generate`：品質ガード（セクション1・2・7の必須質問80%未満は422＋不足リスト返却→UIが回答画面へ誘導）→ LLM生成 → documents に版管理で保存 → Storage にPDF
+- PDF失敗時のフォールバック：content は保存し pdfFailed を返す（「保存して再PDF化」で復旧可能）
+- `/api/documents/[docId]/download`：所有権確認→署名付きURL（60秒）
+- 編集ページ（`/projects/[id]/document`）：全フィールドをフォーム修正→新バージョンとして再PDF化
+
+**AC確認**
+- ユニットテスト48件パス（contentパース異常系・テンプレートに「情報なし」表記・ノンネーム部に屋号が含まれない）✅
+- フル回答セット（未回答2問含む）→ A4縦PDF生成をローカルChromeで実地確認（`scripts/verify-document.ts --fixture`、2ページ・406KB）。未回答項目は「情報なし」表記、ノンネームシートに固有名詞なしを目視確認 ✅
+- LLM生成込みのE2E確認は ANTHROPIC_API_KEY 設定後に `npx tsx --env-file=.env.local scripts/verify-document.ts` ⏳
+- `npm run build` 警告なし ✅
